@@ -1,0 +1,15 @@
+# IQM stack (Python 3.13 / 3.14 compatible)
+# iqm-client 37.x supports Python >=3.11,<3.15.
+# The [qiskit] extra pins qiskit<2.2 and qiskit-aer<0.18, and pydantic<2.13,
+# which is mutually exclusive with the current IBM runtime -> separate env.
+#
+# Do NOT use the deprecated `qiskit-iqm` package (Python <3.13, stale iqm-client).
+# Do NOT install the [qrisp] extra on Python 3.14 (qrisp requires <3.14).
+
+iqm-client[qiskit]>=37.0,<38
+iqm-qaoa>=3.1,<4
+
+numpy>=2.2,<3
+scipy>=1.13
+matplotlib>=3.8
+python-dotenv>=1.0
