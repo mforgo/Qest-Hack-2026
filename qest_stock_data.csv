@@ -1,0 +1,11 @@
+sector,company,ticker,return_2021_2024_pct_per_yr,volatility_2021_2024_pct,return_2025_pct,volatility_2025_pct
+Financials,LHV Group,LHV1T.TL,13.4,23.9,13.2,15.7
+Financials,Coop Pank,CPA1T.TL,15.0,28.2,11.5,15.7
+Financials,Artea bankas (former Siauliu bankas),ROE1L.VS,18.0,21.2,20.0,19.1
+Consumer,Tallinna Kaubamaja (TKM Grupp),TKM1T.TL,7.3,11.3,7.4,7.8
+Consumer,Apranga,APG1L.VS,25.8,17.2,26.8,9.6
+Consumer,Pieno zvaigzdes,PZV1L.VS,8.5,21.7,5.5,20.7
+Energy & utilities,Ignitis grupe,IGN1L.VS,4.5,12.7,14.8,11.4
+Energy & utilities,Tallinna Vesi,TVE1T.TL,-2.8,10.2,13.1,9.1
+Transport,Tallink Grupp,TAL1T.TL,-3.7,18.3,11.0,12.2
+Transport,Tallinna Sadam,TSM1T.TL,-7.8,11.3,30.7,9.9
