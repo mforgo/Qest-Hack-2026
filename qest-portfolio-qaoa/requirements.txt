@@ -1,0 +1,10 @@
+qiskit>=1.0.0
+qiskit-ibm-runtime
+qiskit-optimization
+qiskit-algorithms
+pandas
+numpy
+scipy
+yfinance
+pyyaml
+jupyter
