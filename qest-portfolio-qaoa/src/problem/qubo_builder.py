@@ -1,10 +1,9 @@
 from qiskit_optimization import QuadraticProgram
 from qiskit_optimization.converters import QuadraticProgramToQubo
+import itertools
 from qiskit.quantum_info import SparsePauliOp
 
-from qiskit.quantum_info import SparsePauliOp
-
-def build_manual_hamiltonian(returns, covariance, sector_indices, penalty_weight=10.0, sector_tax=2.0):
+def build_manual_hamiltonian(returns, covariance, sector_indices, hard_sector_penalty=10.0):
     n_assets = len(returns)
     pauli_dict = {}
     
@@ -36,29 +35,26 @@ def build_manual_hamiltonian(returns, covariance, sector_indices, penalty_weight
         add_to_pauli(make_string([]), w)       
         add_to_pauli(make_string([i]), -w)     
 
-    # 3. Penalty: Exactly 5 stocks
-    add_to_pauli(make_string([]), 2.5 * penalty_weight)  
-    for i in range(n_assets):
-        for j in range(i + 1, n_assets):
-            add_to_pauli(make_string([i, j]), 0.5 * penalty_weight) 
-            
-    # 4. General Sector Penalty (Heuristic)
-    # Dynamically apply a tax to any pair of stocks within the same oversized sector
+    # 3. Dynamic Sector Penalty (Triggers if > 2 stocks are picked in ANY sector)
     for sector_name, indices in sector_indices.items():
-        if len(indices) > 2:
-            # Add penalty sector_tax * x_i * x_j
-            # x_i * x_j = 0.25 * (I - Z_i - Z_j + Z_i Z_j)
-            w = sector_tax * 0.25
-            for i in range(len(indices)):
-                for j in range(i + 1, len(indices)):
-                    idx_i = indices[i]
-                    idx_j = indices[j]
-                    add_to_pauli(make_string([]), w)
-                    add_to_pauli(make_string([idx_i]), -w)
-                    add_to_pauli(make_string([idx_j]), -w)
-                    add_to_pauli(make_string([idx_i, idx_j]), w)
+        # Only penalize sectors large enough to violate the rule
+        if len(indices) >= 3:
+            # Generate every possible triplet of stocks in this sector
+            for triplet in itertools.combinations(indices, 3):
+                idx1, idx2, idx3 = triplet
+                w = hard_sector_penalty / 8.0
+                
+                # Expand P * x1 * x2 * x3 into Pauli Z strings
+                add_to_pauli(make_string([]), w)
+                add_to_pauli(make_string([idx1]), -w)
+                add_to_pauli(make_string([idx2]), -w)
+                add_to_pauli(make_string([idx3]), -w)
+                add_to_pauli(make_string([idx1, idx2]), w)
+                add_to_pauli(make_string([idx2, idx3]), w)
+                add_to_pauli(make_string([idx1, idx3]), w)
+                add_to_pauli(make_string([idx1, idx2, idx3]), -w)
             
-    # Remove any zero-weight terms to keep the circuit fast
+    # Remove any zero-weight terms to keep the circuit lean
     pauli_list = [(p_str, weight) for p_str, weight in pauli_dict.items() if abs(weight) > 1e-8]
     
     return SparsePauliOp.from_list(pauli_list)
