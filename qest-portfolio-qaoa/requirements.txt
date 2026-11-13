@@ -5,6 +5,10 @@ qiskit-algorithms
 pandas
 numpy
 scipy
+matplotlib
+seaborn
+networkx
+pylatexenc
 yfinance
 pyyaml
 jupyter

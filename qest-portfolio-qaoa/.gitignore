@@ -2,11 +2,19 @@
 __pycache__/
 *.py[cod]
 .venv/
+.venv-*/
 venv/
 .env
+
+# Notebooks / tooling
+.ipynb_checkpoints/
+
+# OS / editors
+.DS_Store
 
 # Data & Secrets (Keep raw data and API keys out of version control)
 data/raw/*.csv
 configs/ibm_provider.yaml
-results/logs/*.csv
-results/logs/*.json
+
+# Generated experiment outputs
+results/

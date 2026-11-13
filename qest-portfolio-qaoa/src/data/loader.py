@@ -16,11 +16,8 @@ class PortfolioData:
         self.volatilities = self.df_stocks['volatility_2021_2024_pct'].values / 100.0
         
         # Build Covariance Matrix: Cov(i,j) = Corr(i,j) * Vol(i) * Vol(j)
-        self.covariance = np.zeros((self.n_assets, self.n_assets))
-        for i, t_i in enumerate(self.tickers):
-            for j, t_j in enumerate(self.tickers):
-                corr_ij = self.df_corr.loc[t_i, t_j]
-                self.covariance[i, j] = corr_ij * self.volatilities[i] * self.volatilities[j]
+        corr = self.df_corr.loc[self.tickers, self.tickers].values
+        self.covariance = corr * np.outer(self.volatilities, self.volatilities)
                 
         # Group indices by sector for constraints
         self.sector_indices = {}

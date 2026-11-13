@@ -3,6 +3,8 @@ from qiskit.circuit.library import QAOAAnsatz
 from qiskit import QuantumCircuit
 from qiskit.quantum_info import SparsePauliOp
 
+from src.data.constraints import DEFAULT_CONSTRAINTS
+
 def build_dicke_state(num_qubits, k):
     """
     Builds a pure Dicke state: an equal superposition of all states with exactly k ones.
@@ -25,13 +27,16 @@ def build_dicke_state(num_qubits, k):
     qc.prepare_state(state_array) # Qiskit automatically synthesizes the initialization gates
     return qc
 
-def build_simple_valid_state(num_qubits, k):
+def build_simple_valid_state(num_qubits, k, indices=None):
     """
     A shallow hardware-friendly alternative to Dicke states for noisy IBM QPUs. 
     Starts in a single valid state (e.g. 1111100000), allowing the XY-mixer to spread it out.
     """
     qc = QuantumCircuit(num_qubits)
-    for i in range(k):
+    positions = list(range(k)) if indices is None else list(indices)
+    if len(positions) != k:
+        raise ValueError(f"Expected {k} initial indices, got {len(positions)}")
+    for i in positions:
         qc.x(i)
     return qc
 
@@ -59,20 +64,23 @@ def build_xy_mixer(num_qubits, topology="complete"):
             
     return SparsePauliOp.from_list(pauli_list)
 
-def build_xy_qaoa(ising_op, p_depth=1, use_dicke=True):
+def build_xy_qaoa(ising_op, p_depth=1, use_dicke=True, topology="complete",
+                  initial_indices=None, constraints=DEFAULT_CONSTRAINTS):
     """
     Assembles the constrained XY-Mixer QAOA.
     """
     num_qubits = ising_op.num_qubits
     
-    # 1. Initialization (Constrained to 5 stocks)
+    # 1. Initialization (Constrained to num_to_select stocks)
     if use_dicke:
-        initial_state = build_dicke_state(num_qubits, k=5)
+        initial_state = build_dicke_state(num_qubits, k=constraints.num_to_select)
     else:
-        initial_state = build_simple_valid_state(num_qubits, k=5)
+        initial_state = build_simple_valid_state(
+            num_qubits, k=constraints.num_to_select, indices=initial_indices
+        )
         
     # 2. Mixer (Preserves exactly 5 stocks)
-    mixer_op = build_xy_mixer(num_qubits, topology="complete")
+    mixer_op = build_xy_mixer(num_qubits, topology=topology)
     
     # 3. Assemble
     ansatz = QAOAAnsatz(

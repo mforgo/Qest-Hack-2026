@@ -4,12 +4,13 @@ from qiskit import transpile
 from qiskit_aer.primitives import EstimatorV2 as AerEstimator # C++ backend
 from qiskit_aer import AerSimulator
 
-def create_objective_function(ansatz, ising_op, estimator=None):
+def create_objective_function(ansatz, ising_op, estimator=None, backend=None):
     if estimator is None:
         estimator = AerEstimator()
-        
+    if backend is None:
+        backend = AerSimulator()
+
     # Tell the transpiler to unroll everything down to standard C++ Aer gates
-    backend = AerSimulator()
     transpiled_ansatz = transpile(ansatz, backend=backend, optimization_level=1)
         
     iteration = [0]
@@ -29,17 +30,14 @@ def create_objective_function(ansatz, ising_op, estimator=None):
     return objective
 
 
-def optimize_circuit(objective_func, initial_params, method='COBYLA', maxiter=100):
+def optimize_circuit(objective_func, initial_params, method='COBYLA', maxiter=1000):
     """
     Runs the classical optimization loop.
     """
-    if method.upper() == 'COBYLA':
-        res = minimize(
-            objective_func, 
-            x0=initial_params, 
-            method='COBYLA',
-            options={'maxiter': maxiter, 'disp': False}
-        )
-        return res.x, res.fun
-    else:
-        raise NotImplementedError(f"Optimizer {method} not yet wired in this template.")
+    res = minimize(
+        objective_func, 
+        x0=initial_params, 
+        method=method,
+        options={'maxiter': maxiter, 'disp': False}
+    )
+    return res.x, res.fun

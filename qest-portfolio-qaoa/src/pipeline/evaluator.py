@@ -1,6 +1,8 @@
 import numpy as np
 
-def evaluate_portfolio(bitstring, returns, covariance, tickers, sector_indices):
+from src.data.constraints import DEFAULT_CONSTRAINTS
+
+def evaluate_portfolio(bitstring, returns, covariance, tickers, sector_indices, constraints=DEFAULT_CONSTRAINTS):
     """
     Evaluates the financial metrics and constraint validity of a selected portfolio.
     
@@ -21,19 +23,7 @@ def evaluate_portfolio(bitstring, returns, covariance, tickers, sector_indices):
     
     num_selected = len(selected_indices)
     
-    # Check Constraints
-    is_valid = True
-    constraint_issues = []
-    
-    if num_selected != 5:
-        is_valid = False
-        constraint_issues.append(f"Selected {num_selected} stocks instead of 5.")
-        
-    for sector, indices in sector_indices.items():
-        count_in_sector = sum(1 for i in indices if stock_bits[i] == 1)
-        if count_in_sector > 2:
-            is_valid = False
-            constraint_issues.append(f"Sector {sector} exceeded limit with {count_in_sector} stocks.")
+    is_valid, constraint_issues = constraints.is_valid(selected_indices, sector_indices)
             
     # Calculate Financials (Hackathon rules: equal weights -> 20% each)
     if num_selected > 0:
