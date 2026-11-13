@@ -12,7 +12,8 @@ from . import data_plots, quantum_plots, results_plots
 def generate_report(data_dir="data/raw", output_dir="results/visualisations",
                     results_csv=None, do_data=True, do_results=True, do_quantum=True,
                     include_network=True, include_landscape=False,
-                    grid_points=20, maxiter=60):
+                    grid_points=20, maxiter=60, dataset="qest",
+                    allow_large_quantum=False):
     """
     Generate the extended visualization suite.
 
@@ -27,6 +28,9 @@ def generate_report(data_dir="data/raw", output_dir="results/visualisations",
         include_landscape: Include the heavy 3D QAOA landscape.
         grid_points: Landscape resolution per axis.
         maxiter: COBYLA iterations for the sampled-distribution plot.
+        dataset: Name of the dataset to load (qest, nasdaq_baltic, nyse).
+        allow_large_quantum: Allow quantum/landscape simulation for datasets
+            with more than 12 assets.
 
     Returns:
         list[str]: Paths of the generated PNGs.
@@ -36,7 +40,17 @@ def generate_report(data_dir="data/raw", output_dir="results/visualisations",
 
     data = None
     if do_data or do_quantum or include_network or include_landscape:
-        data = data_plots.load_portfolio_data(data_dir)
+        data = data_plots.load_portfolio_data(data_dir, dataset=dataset)
+
+    skip_quantum = False
+    if data is not None and data.n_assets > 12 and not allow_large_quantum:
+        skip_quantum = True
+        print(
+            f"WARNING: dataset '{dataset}' has {data.n_assets} assets. Aer "
+            "statevector simulation grows as 2^n, so quantum and landscape "
+            "plots are skipped. Data and network plots are still generated. "
+            "Pass allow_large_quantum=True (--allow-large-quantum) to override."
+        )
 
     resolved_csv = results_plots.resolve_results_csv(results_csv) if (do_data or do_results) else None
 
@@ -58,19 +72,20 @@ def generate_report(data_dir="data/raw", output_dir="results/visualisations",
         else:
             print("No results CSV found; skipping results plots.")
 
-    if do_quantum:
+    if do_quantum and not skip_quantum:
         paths.append(quantum_plots.plot_ansatz_circuit(data, output_dir))
         paths.append(quantum_plots.plot_sampled_distribution(
             data, output_dir, maxiter=maxiter))
 
     if include_network:
         from src.pipeline.visualize_results import plot_correlation_network
-        paths.append(plot_correlation_network(data_dir=data_dir, output_dir=output_dir))
+        paths.append(plot_correlation_network(data_dir=data_dir, output_dir=output_dir,
+                                              dataset=dataset))
 
-    if include_landscape:
+    if include_landscape and not skip_quantum:
         from src.pipeline.visualize_results import plot_qaoa_landscape
         paths.append(plot_qaoa_landscape(grid_points=grid_points, data_dir=data_dir,
-                                         output_dir=output_dir))
+                                         output_dir=output_dir, dataset=dataset))
 
     print(f"\nGenerated {len(paths)} visualizations in {output_dir}")
     return paths

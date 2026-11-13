@@ -18,6 +18,11 @@ def main():
     parser.add_argument("--file", type=str, default=None,
                         help="Specific results CSV (default: richest results/logs file).")
     parser.add_argument("--data-dir", type=str, default="data/raw")
+    parser.add_argument("--dataset", type=str, default="qest",
+                        choices=("qest", "nasdaq_baltic", "nyse"),
+                        help="Dataset to load from --data-dir (default: qest).")
+    parser.add_argument("--allow-large-quantum", action="store_true",
+                        help="Allow quantum/landscape simulation for >12 assets.")
     parser.add_argument("--output-dir", type=str, default="results/visualisations")
     parser.add_argument("--grid-points", type=int, default=20)
     parser.add_argument("--maxiter", type=int, default=60)
@@ -37,6 +42,8 @@ def main():
         include_landscape=args.landscape,
         grid_points=args.grid_points,
         maxiter=args.maxiter,
+        dataset=args.dataset,
+        allow_large_quantum=args.allow_large_quantum,
     )
 
 

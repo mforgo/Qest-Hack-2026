@@ -8,7 +8,9 @@ Short answers to the questions this project raises most often. For definitions, 
 
 ### Is this running on a real quantum computer?
 
-No. Everything runs on **Aer**, Qiskit's local simulator, on a normal CPU. No IBM account or quantum hardware is needed. The circuit is a genuine QAOA circuit; only the execution is simulated.
+Not by default. The default runs use **Aer**, Qiskit's local simulator, on a normal CPU; no IBM account or quantum hardware is needed. The circuit is a genuine QAOA circuit; only the execution is simulated.
+
+An **optional** hardware path does exist: `python -m src.pipeline.hardware_runner` sends one small circuit to a real IBM backend. It loads `configs/ibm_provider.yaml` for non-secret settings and needs an IBM Quantum account. See [`hardware.md`](hardware.md).
 
 ### Why use QAOA for a problem a laptop can solve instantly?
 
@@ -36,9 +38,9 @@ for phil_name, alpha in (("Neutral", 2.0),):  # For testing, only run Neutral ph
 
 Restore the commented `for phil_name, alpha in philosophies.items():` line (and set `seeds = [42, 123, 999]`) to reproduce the 45-row sweep.
 
-### Why are `configs/*.yaml`, `notebooks/*.ipynb`, `scripts/run_experiment.py`, and `src/quantum/optimizers.py` empty?
+### Why are `configs/grid_search.yaml`, `notebooks/*.ipynb`, `scripts/run_experiment.py`, and `src/quantum/optimizers.py` empty?
 
-They are **placeholders** (0 bytes). No code reads them. All configuration lives in `runner.py` and `constraints.py`. They exist to signal intended structure, not implemented features. See [`architecture.md`](architecture.md).
+They are **placeholders** (0 bytes) and no code reads them. `configs/ibm_provider.yaml` is different: it holds the hardware-runner settings and **is** loaded by `src/pipeline/hardware_runner.py`. The simulator runner still takes its configuration from CLI flags, not YAML. See [`architecture.md`](architecture.md).
 
 ### Why is there no "select exactly 5" penalty in the Hamiltonian?
 
@@ -66,6 +68,30 @@ They are the **held-back validation period**. The optimizer uses 2021–2024 onl
 ### Are there tests?
 
 No automated test suite. The pipeline was validated manually (compile, imports, numeric equivalence of the manual Hamiltonian vs the QP, validity parity checks, and an end-to-end smoke run). See [`architecture.md`](architecture.md).
+
+---
+
+## About the datasets
+
+### Which datasets are supported?
+
+Three, all under `data/raw/` as `<dataset>_stock_data.csv` plus `<dataset>_correlation_2021_2024.csv`:
+
+| `--dataset` | Assets |
+|---|---:|
+| `qest` (default) | 10 |
+| `nasdaq_baltic` | 29 |
+| `nyse` | 32 |
+
+`nasdaq_baltic` and `nyse` are experimental extended universes. The `nasdaq_baltic` company/sector metadata should be verified before reporting; the untracked downloader has known ticker/company mismatches. See the caveat in [`usage.md`](usage.md).
+
+### Can I run the 29/32-asset datasets on the simulator?
+
+Partly. The data and network plots work for both datasets. But the simulator grid search stops above **24 assets** (it raises a `ValueError`, because exact diagonalization and Aer statevector simulation grow as `2^n`), and the quantum and landscape plots are skipped above **12 assets**. So for `nasdaq_baltic` and `nyse` you get the data and network plots, not the full quantum sweep. Use `--dataset qest` for the quantum plots, or `--allow-large-dataset` / `--allow-large-quantum` to override the guards at your own risk.
+
+### Can I run the full 29/32-asset datasets on a QPU?
+
+Not usefully in full. The full `nasdaq_baltic` (29) and `nyse` (32) circuits transpile to depths of roughly 4,100 and 6,400 in a representative fake-backend run, far beyond what current IBM hardware can run to a meaningful result. The hardware runner blocks any submission with transpiled depth above **2000** unless you pass `--allow-deep-circuit`. Treat a deep run as a demonstration of scale only. For a useful QPU result, use `--dataset qest`, or `--dataset nasdaq_baltic --max-assets 12` (or 15) to build a smaller top-Sharpe circuit. See [`hardware.md`](hardware.md).
 
 ---
 
@@ -101,7 +127,8 @@ The classical QP optimum minimizes the **Hamiltonian energy**, which balances re
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `FileNotFoundError: data/raw/qest_stock_data.csv` | Data files are gitignored and absent | Add both CSVs under `data/raw/` |
+| `FileNotFoundError: data/raw/<dataset>_stock_data.csv` | Data files are gitignored and absent | Add the `<dataset>_stock_data.csv` and `<dataset>_correlation_2021_2024.csv` pair under `data/raw/`; the default needs the `qest` pair |
+| `ValueError: ... has more than 24 assets` | The simulator grid search stops above 24 assets | Use `--dataset qest`, a smaller subset (hardware: `--max-assets N`), the hardware runner, or `--allow-large-dataset` |
 | `ModuleNotFoundError: No module named 'src'` | Running from the wrong directory | Run from the repository root (`qest-portfolio-qaoa/`) |
 | `ModuleNotFoundError: qiskit_aer` | Dependencies not installed | `pip install -r requirements.txt` |
 | Plot 17 fails with a LaTeX/`pylatexenc` error | Missing circuit-drawing dependency | `pip install pylatexenc` |
@@ -117,8 +144,8 @@ The classical QP optimum minimizes the **Hamiltonian energy**, which balances re
 
 ## Known limitations & future work
 
-- **Simulator only.** No real-hardware execution path is wired up, despite the `qiskit-ibm-runtime` dependency and the empty `ibm_provider.yaml`.
-- **Configs are not loaded.** YAML files are placeholders; parameters are hardcoded.
+- **Simulator by default.** The default runs use Aer. An optional IBM hardware path exists (`src/pipeline/hardware_runner.py`), but it is a one-circuit demo, not a benchmark.
+- **Hardware config only is loaded.** `configs/ibm_provider.yaml` is read by the hardware runner; the simulator runner still takes its settings from CLI flags, and `configs/grid_search.yaml` is an empty placeholder.
 - **Runner is restricted to Neutral / one seed** for speed.
 - **No automated tests.** Validation was manual.
 - **Legacy plot 02** has a hardcoded classical reference line that may be stale.
@@ -136,5 +163,5 @@ The classical QP optimum minimizes the **Hamiltonian energy**, which balances re
 4. Score the top-k sampled bitstrings and report the best **valid** one, not just the mode.
 5. Add a real 2025 out-of-sample report.
 6. Replace or remove the hardcoded reference line in plot 02.
-7. Add a hardware backend path behind a flag, with error mitigation.
+7. Add error mitigation to the existing hardware backend path (readout mitigation, dynamical decoupling, zero-noise extrapolation).
 8. Add a `pyproject.toml`, CI, and linting.

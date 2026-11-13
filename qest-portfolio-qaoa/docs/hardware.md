@@ -82,7 +82,7 @@ You can override this with `initial_indices` in the YAML, or by switching `initi
 ## 4. Prerequisites
 
 - The normal project dependencies (`pip install -r requirements.txt`), including `qiskit-ibm-runtime`.
-- An IBM Quantum account with access to at least one operational backend with **10 or more qubits**.
+- An IBM Quantum account with access to at least one operational backend with **10 or more qubits**. A larger dataset needs one qubit per asset (29 for `nasdaq_baltic`, 32 for `nyse`) unless you use `--max-assets N` to select a smaller subset.
 - Credentials supplied in **one** of two ways:
   1. A saved Qiskit account (recommended), or
   2. The `QISKIT_IBM_TOKEN` environment variable.
@@ -111,7 +111,10 @@ After that, the runner can find the account by name (or use the default saved ac
 | `channel` | `ibm_quantum_platform` | Only used when `QISKIT_IBM_TOKEN` is set |
 | `instance` | `""` | IBM Cloud instance CRN, if required by your account |
 | `backend` | `""` | Explicit backend; empty = least-busy operational backend |
-| `min_qubits` | `10` | Minimum backend size |
+| `dataset` | `qest` | `qest`, `nasdaq_baltic`, or `nyse`; resolves `<dataset>_*.csv` |
+| `max_assets` | `0` | If >0, keep only the top-N assets by individual Sharpe ratio before building the circuit; `0` = all assets |
+| `min_qubits` | `10` | **Floor** on backend size; the real minimum is the larger of this and the circuit's qubit count |
+| `surrogate_assets` | `10` | Assets used for Stage 1 surrogate angle optimization when the universe is large (`0` disables) |
 | `shots` | `2048` | Hardware shots |
 | `optimization_level` | `3` | Transpiler effort (0–3) |
 | `alpha` | `2.0` | Risk factor (Neutral philosophy) |
@@ -126,6 +129,8 @@ After that, the runner can find the account by name (or use the default saved ac
 | `top_counts` | `20` | How many bitstrings to keep in the JSON |
 
 Every setting can also be overridden on the command line (see below).
+
+Backend selection now happens **after** the problem and ansatz are built. When no `--backend` is given, the runner picks the least-busy operational backend with at least `max(config["min_qubits"], ansatz.num_qubits)` qubits, so a larger dataset automatically raises the requirement. `--max-assets` is applied before the ansatz is built, so the qubit requirement reflects the subset size, not the original dataset size. An explicit `--backend` is rejected if it has fewer qubits than the ansatz needs. `--list-backends` still filters by `config["min_qubits"]` alone, because it does not build the problem.
 
 ---
 
@@ -157,12 +162,23 @@ python -m src.pipeline.hardware_runner --backend ibm_kingston --shots 2048
 
 If you omit `--backend`, the least-busy operational backend with at least `min_qubits` is chosen. The job is submitted once; the process waits for the result.
 
+### Run a subset of a large dataset
+
+```bash
+python -m src.pipeline.hardware_runner --dataset nasdaq_baltic --max-assets 12 --dry-run
+```
+
+This builds a 12-qubit circuit from the 12 highest individual-Sharpe assets, instead of the full 29-qubit universe. The selected tickers are printed and saved in the result. Use `--max-assets 15` for a slightly larger experiment; estimated depths are in §10.
+
 ### Useful options
 
 | Flag | Effect |
 |---|---|
 | `--config PATH` | Use a different YAML config |
 | `--backend NAME` | Explicit backend (otherwise least busy) |
+| `--dataset NAME` | `qest` (default), `nasdaq_baltic`, or `nyse` |
+| `--max-assets N` | Build the circuit on the top-N assets by individual Sharpe ratio (`0` = all) |
+| `--data-dir PATH` | Directory holding the `<dataset>_*.csv` files |
 | `--shots N` | Hardware shots |
 | `--alpha X` | Risk factor |
 | `--depth P` | QAOA depth |
@@ -170,16 +186,30 @@ If you omit `--backend`, the least-busy operational backend with at least `min_q
 | `--topology {ring,complete}` | XY mixer connectivity |
 | `--seed N` | Simulator-stage seed |
 | `--maxiter N` | COBYLA iterations on Aer |
+| `--surrogate-assets N` | Stage 1 surrogate size (default 10; `0` disables) |
+| `--params "A,B"` | Supply angles directly and skip Stage 1 |
 | `--output-dir PATH` | Where to write results |
 | `--no-sim-optimize` | Skip stage 1 and use random angles (debugging only) |
+| `--allow-deep-circuit` | Submit even when transpiled depth exceeds 2000 |
 | `--dry-run` | Validate and stop before submission |
 | `--list-backends` | List backends and exit |
+
+### Stage 1 scaling for large universes
+
+Stage 1 never builds an Aer statevector for more than 20 qubits, so large datasets use one of these routes:
+
+- `--max-assets N` shrinks the actual problem to the top-N individual-Sharpe assets before building the Hamiltonian. This reduces circuit width and depth, and is the recommended way to run a large universe on a QPU. `N` must be at least 5; `0` keeps all assets.
+- `--surrogate-assets N` (default 10) optimizes the angles on the top-N individual-Sharpe subset and reuses them on the full ansatz when `n_assets > 20`.
+- `--params "0.7,0.4"` supplies angles directly and skips Stage 1.
+- `--no-sim-optimize` uses random angles (debugging only).
+
+If `n_assets > 20` and `--surrogate-assets 0` is set with no `--params` and no `--no-sim-optimize`, the runner raises a clear `ValueError` instead of silently falling back.
 
 ---
 
 ## 7. What gets submitted
 
-For the default configuration:
+For the default `qest` configuration:
 
 - 10 qubits (one per stock),
 - QAOA depth `p = 1`,
@@ -189,7 +219,9 @@ For the default configuration:
 - measurements on all qubits,
 - one job with 2048 shots.
 
-The circuit is transpiled to the backend's instruction set (ISA) before submission. The runner prints the depth, size, and operation counts so you can see how expensive the circuit is.
+By default, larger datasets use **all** of their assets as qubits (`nasdaq_baltic` = 29, `nyse` = 32). Use `--max-assets N` to build the circuit on the top-N individual-Sharpe assets instead. The full-universe runs may be blocked by the depth guard unless `--allow-deep-circuit` is passed; see §10.
+
+The circuit is transpiled to the backend's instruction set (ISA) before submission. The runner prints the depth, size, and operation counts so you can see how expensive the circuit is. It also warns when the transpiled depth exceeds **1000**, and when `initial_state=dicke` is used with more than **12 assets**.
 
 ---
 
@@ -207,8 +239,11 @@ results/logs/hardware_run_<timestamp>.csv
 The JSON keeps the full record, including:
 
 - `timestamp`, `alpha`, `depth`, `seed`
+- `dataset`, `dataset_num_assets`, `max_assets`, `subset_indices`, `num_assets`, `num_qubits`, `universe_tickers`
 - `sim_energy`, `sim_params`, `num_parameters` (stage 1)
+- `sim_params_source` (`simulator`, `surrogate`, `cli`, or `random`), `surrogate_assets`
 - `backend`, `job_id`, `shots`
+- `transpiled_depth`, `transpiled_size`
 - `hardware_best_bitstring`, `hardware_best_count`, `hardware_best_probability`
 - `is_valid`, `return_pct`, `volatility_pct`, `sharpe`
 - `tickers`, `issues`
@@ -260,7 +295,37 @@ results/logs/hardware_run_20261112_231745.csv
 
 ---
 
-## 10. Honest caveats
+## 10. Large universes (29/32 assets)
+
+The `nasdaq_baltic` (29) and `nyse` (32) universes are too deep to run in full on current IBM hardware. Use `--max-assets N` to build the circuit on the top-N individual-Sharpe assets; this is the practical QPU path. The runner blocks any submission whose transpiled depth exceeds **2000** unless `--allow-deep-circuit` is passed.
+
+### Estimated transpiled depth (fake backend)
+
+Measured with `FakeSherbrooke` (127 qubits), `optimization_level=3`, `p=1`, `initial_state=simple`, `mixer_topology=ring`, and the same top-Sharpe subset selection used by `--max-assets`. These are **fake-backend estimates, not real calibration data**; exact depth varies by backend, transpiler version, and seed. A representative run:
+
+| Dataset / subset | Qubits | Transpiled depth | Transpiled size | ECR gates |
+|---|---:|---:|---:|---:|
+| `qest` (all) | 10 | 582 | 1793 | 213 |
+| `nasdaq_baltic` top-10 | 10 | 637 | 1839 | 226 |
+| `nasdaq_baltic` top-12 | 12 | 789 | 2539 | 307 |
+| `nasdaq_baltic` top-15 | 15 | 1178 | 4051 | 542 |
+| `nasdaq_baltic` top-20 | 20 | 2024 | 8306 | 1199 |
+| `nyse` top-12 | 12 | 1307 | 3500 | 472 |
+| `nyse` top-15 | 15 | 1650 | 4747 | 647 |
+| `nasdaq_baltic` full | 29 | 4107 | 19475 | 2744 |
+| `nyse` full | 32 | 6378 | 31082 | 4425 |
+
+### What this means
+
+- `qest` (10 assets) and `--max-assets` subsets up to roughly **12–15 assets** are the practical QPU targets.
+- A top-20 subset is already around the 2000-depth guard; do not expect a useful result from much larger subsets.
+- The full 29/32-asset circuits are **too deep for a useful result**. A run at that depth is a demonstration of scale, not a useful portfolio result. Do not present it as feasible or meaningful.
+- The >2000 depth guard blocks those submissions by default. `--allow-deep-circuit` exists only for intentional experiments, not for routine use.
+- For a useful QPU run on a large universe, reduce the problem: use `--dataset qest`, or `--dataset nasdaq_baltic --max-assets 12` (or 15). The selected tickers are printed and saved in the result.
+
+---
+
+## 11. Honest caveats
 
 - **This is a demo, not a benchmark.** One small job on a noisy device does not establish quantum advantage, and it is not a statistically strong comparison with the simulator.
 - **No error mitigation.** The runner uses the plain sampler. Real deployments would add readout mitigation, dynamical decoupling, or zero-noise extrapolation.
@@ -270,14 +335,14 @@ results/logs/hardware_run_20261112_231745.csv
 
 ---
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `Could not create QiskitRuntimeService` | No saved account and no `QISKIT_IBM_TOKEN` | Save an account or export the token |
 | `No operational backends found` | Account has no access, or `min_qubits` too high | Check `--list-backends`; lower `min_qubits` |
 | Backend selected but job stays `QUEUED` | Normal queue | Wait; the runner blocks until the result arrives |
-| Transpiled depth is thousands | `initial_state: dicke` or `topology: complete` | Use `simple` + `ring`, or lower `optimization_level` expectations |
+| Transpiled depth is thousands | `initial_state: dicke`, `topology: complete`, or a large universe | Use `simple` + `ring`, add `--max-assets 12`, or lower `optimization_level` expectations |
 | Result is invalid | Hardware noise or too few shots | Increase `--shots`, re-run, or treat it as a noisy sample |
 | `ModuleNotFoundError: qiskit_ibm_runtime` | Dependency missing | `pip install -r requirements.txt` |
 

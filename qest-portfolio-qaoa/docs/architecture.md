@@ -11,9 +11,13 @@ qest-portfolio-qaoa/
 ├── README.md                     # one-page overview (start here)
 ├── Baltic Stock Selection.md     # original challenge statement
 ├── requirements.txt              # Python dependencies
-├── data/raw/
-│   ├── qest_stock_data.csv       # returns, volatilities, sectors (10 stocks)
-│   └── qest_correlation_2021_2024.csv  # 10×10 correlation matrix
+├── data/raw/                     # gitignored; you supply the CSVs
+│   ├── qest_stock_data.csv                     # 10 assets (default)
+│   ├── qest_correlation_2021_2024.csv          # 10×10 correlation matrix
+│   ├── nasdaq_baltic_stock_data.csv            # 29 assets (experimental)
+│   ├── nasdaq_baltic_correlation_2021_2024.csv # 29×29 correlation matrix
+│   ├── nyse_stock_data.csv                     # 32 assets (experimental)
+│   └── nyse_correlation_2021_2024.csv          # 32×32 correlation matrix
 ├── results/
 │   ├── logs/                     # experiment CSV outputs
 │   └── visualisations/           # generated PNG plots
@@ -31,6 +35,7 @@ qest-portfolio-qaoa/
 │   └── pipeline/
 │       ├── runner.py             # MAIN ENTRY POINT: grid search
 │       ├── evaluator.py          # score a bitstring → portfolio metrics
+│       ├── hardware_runner.py    # optional IBM hardware path (loads configs/ibm_provider.yaml)
 │       ├── visualize_results.py  # legacy plotting CLI (plots 01–04 + landscape + network)
 │       └── visualizations/       # extended plotting package (plots 05–18)
 │           ├── __init__.py       # forces Matplotlib "Agg" backend
@@ -39,16 +44,16 @@ qest-portfolio-qaoa/
 │           ├── data_plots.py     # plots 05–10 (market data)
 │           ├── results_plots.py  # plots 11–16 (experiment results)
 │           └── quantum_plots.py  # plots 17–18 (circuit + sampled distribution)
-├── configs/                      # EMPTY placeholders (not loaded by code)
-│   ├── grid_search.yaml
-│   └── ibm_provider.yaml
+├── configs/
+│   ├── grid_search.yaml          # EMPTY placeholder (not loaded by code)
+│   └── ibm_provider.yaml         # hardware-runner settings (loaded by hardware_runner.py)
 ├── notebooks/                    # EMPTY placeholder (not used)
 │   └── 01_data_exploration.ipynb
 └── scripts/
     └── run_experiment.py         # EMPTY placeholder (unused)
 ```
 
-> **Note:** `configs/`, `notebooks/`, `scripts/run_experiment.py`, and `src/quantum/optimizers.py` are **0-byte placeholders**. All real configuration is hardcoded in `src/pipeline/runner.py`. See [`faq.md`](faq.md).
+> **Note:** `configs/grid_search.yaml`, `notebooks/`, `scripts/run_experiment.py`, and `src/quantum/optimizers.py` are **0-byte placeholders**. The simulator's configuration is hardcoded in `src/pipeline/runner.py` (CLI flags for overrides); `configs/ibm_provider.yaml` **is** loaded, but only by the hardware runner. See [`faq.md`](faq.md).
 
 ---
 
@@ -60,14 +65,14 @@ qest-portfolio-qaoa/
 
 | Attribute | Meaning |
 |---|---|
-| `tickers` | List of 10 ticker symbols, in row order |
-| `n_assets` | 10 |
+| `tickers` | Ticker symbols, in row order (10 for `qest`, 29 for `nasdaq_baltic`, 32 for `nyse`) |
+| `n_assets` | Number of assets in the loaded dataset |
 | `returns` | Annualized return per stock, as decimals (e.g. 0.134) |
 | `volatilities` | Annualized volatility per stock, as decimals |
-| `covariance` | 10×10 covariance matrix, built as `corr × outer(vol, vol)` |
+| `covariance` | `n_assets × n_assets` covariance matrix, built as `corr × outer(vol, vol)` |
 | `sector_indices` | `{sector_name: [row indices]}` |
 
-`get_formulation_data()` returns `(returns, covariance, sector_indices, tickers)`.
+`get_formulation_data()` returns `(returns, covariance, sector_indices, tickers)`. `subset(indices)` returns a new `PortfolioData` containing only those assets, with every array and sector mapping sliced consistently; the hardware runner uses it for `--max-assets`.
 
 The 2025 columns (`return_2025_pct`, `volatility_2025_pct`) are **read into the CSV but not used** by the optimizer. They are held back for validation.
 
@@ -130,7 +135,7 @@ Reusing a single `AerSimulator`/`AerEstimator` across the whole grid is a delibe
 
 `evaluate_portfolio(bitstring, returns, covariance, tickers, sector_indices)`:
 
-1. Takes the first 10 bits (one per stock).
+1. Takes the first `n_assets` bits (one per stock).
 2. Selects the corresponding tickers.
 3. Checks validity via `DEFAULT_CONSTRAINTS.is_valid`.
 4. Computes equal-weight return, volatility, and Sharpe ratio.
@@ -140,7 +145,7 @@ Reusing a single `AerSimulator`/`AerEstimator` across the whole grid is a delibe
 
 `run_grid_search()` does, in order:
 
-1. Load `PortfolioData` from `data/raw/`.
+1. Resolve `--dataset` (default `qest`) to `<dataset>_stock_data.csv` / `<dataset>_correlation_2021_2024.csv` and load `PortfolioData` from `data/raw/`.
 2. Define philosophies (`Gambling=0.0`, `Neutral=2.0`, `Safe=5.0`), depths `1..5`, seeds `[42]`, ansatz `["xy_mixer"]`.
 3. Create one `AerSimulator`, `AerSampler`, `AerEstimator` for the whole run.
 4. Loop over philosophies (currently restricted to Neutral — see below).
@@ -173,8 +178,11 @@ Generates plots **05–18**. Entry point: `python -m src.pipeline.visualizations
 ## End-to-end data flow
 
 ```
-data/raw/qest_stock_data.csv ──┐
-data/raw/qest_correlation_*.csv ┘
+--dataset {qest,nasdaq_baltic,nyse}   (default: qest)
+                │  resolves to
+                ▼
+data/raw/<dataset>_stock_data.csv ──┐
+data/raw/<dataset>_correlation_*.csv ┘
                 │
                 ▼
         PortfolioData (loader.py)
@@ -218,7 +226,7 @@ solve_continuous_relaxation                 │
 
 | Parameter | Value | Where |
 |---|---|---|
-| Stocks | 10 | data CSV |
+| Stocks | 10 for the default `qest` dataset (`--dataset` selects 29 for `nasdaq_baltic`, 32 for `nyse`) | data CSV |
 | Select count | 5 | `constraints.py` |
 | Max per sector | 2 | `constraints.py` |
 | Philosophies | Gambling 0.0, Neutral 2.0, Safe 5.0 | `runner.py` |
@@ -232,7 +240,7 @@ solve_continuous_relaxation                 │
 | Shots per evaluation | 1024 (primitive default) | `runner.py` (sampler) |
 | Data window | 2021–2024 (2025 held back) | `loader.py` |
 
-Changing any of these means editing `runner.py` (or the relevant module). The YAML files are **not** read.
+Changing any of these means editing `runner.py` (or the relevant module). The simulator does **not** read YAML; the hardware runner reads `configs/ibm_provider.yaml`.
 
 ---
 

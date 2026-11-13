@@ -27,7 +27,8 @@ ALL_PHILOSOPHIES = {
 
 
 def run_grid_search(philosophies=None, depths=None, seeds=None,
-                    ansatz_types=None, maxiter=1000, output_dir="results/logs"):
+                    ansatz_types=None, maxiter=1000, output_dir="results/logs",
+                    data_dir="data/raw", dataset="qest", allow_large_dataset=False):
     #Hide SciPy sparse matrix conversion warnings during local simulation
     warnings.simplefilter('ignore', SparseEfficiencyWarning)
 
@@ -44,11 +45,24 @@ def run_grid_search(philosophies=None, depths=None, seeds=None,
     os.makedirs(output_dir, exist_ok=True)
 
     print("Loading data...")
-    data = PortfolioData("data/raw/qest_stock_data.csv", "data/raw/qest_correlation_2021_2024.csv")
+    data = PortfolioData(
+        os.path.join(data_dir, f"{dataset}_stock_data.csv"),
+        os.path.join(data_dir, f"{dataset}_correlation_2021_2024.csv"),
+    )
+    if data.n_assets > 24 and not allow_large_dataset:
+        raise ValueError(
+            f"Dataset '{dataset}' has {data.n_assets} assets. The simulator grid "
+            "search relies on exact diagonalization and Aer statevector simulation, "
+            "whose cost grows as 2^n with the number of qubits, so it is limited to "
+            "24 assets. Use --dataset qest, select a smaller subset, run the hardware "
+            "runner for larger universes, or pass --allow-large-dataset to override."
+        )
+
     returns, covariance, sector_indices, tickers = data.get_formulation_data()
 
     print(f"Grid: philosophies={list(philosophies)}, depths={depths}, "
           f"seeds={seeds}, ansatz={ansatz_types}, maxiter={maxiter}")
+    print(f"Data: {dataset}, {data.n_assets} assets, {data.n_assets} qubits")
 
     results_log = []
 
@@ -132,6 +146,8 @@ def run_grid_search(philosophies=None, depths=None, seeds=None,
                     metrics = evaluate_portfolio(best_bitstring, returns, covariance, tickers, sector_indices)
 
                     results_log.append({
+                        "dataset": dataset,
+                        "num_assets": data.n_assets,
                         "philosophy": phil_name,
                         "alpha": alpha,
                         "ansatz": atype,
@@ -175,6 +191,13 @@ def main(argv=None):
                         help="COBYLA max iterations per run (default: 1000).")
     parser.add_argument("--output-dir", default="results/logs",
                         help="Directory for the results CSV.")
+    parser.add_argument("--data-dir", default="data/raw",
+                        help="Directory containing the stock and correlation CSVs.")
+    parser.add_argument("--dataset", default="qest",
+                        choices=["qest", "nasdaq_baltic", "nyse"],
+                        help="Dataset name used to resolve <dataset>_*.csv (default: qest).")
+    parser.add_argument("--allow-large-dataset", action="store_true",
+                        help="Bypass the >24 asset simulator safety limit.")
     args = parser.parse_args(argv)
 
     if args.full and args.quick:
@@ -199,6 +222,9 @@ def main(argv=None):
         ansatz_types=ansatz_types,
         maxiter=args.maxiter,
         output_dir=args.output_dir,
+        data_dir=args.data_dir,
+        dataset=args.dataset,
+        allow_large_dataset=args.allow_large_dataset,
     )
 
 

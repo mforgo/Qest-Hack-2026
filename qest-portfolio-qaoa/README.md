@@ -17,6 +17,18 @@ From ten stocks spread across four sectors, choose five (equal weights, max two 
 - Selected using 2021–2024 data; 2025 is held back for validation
 - Three "investor personalities" tune the return-vs-risk trade-off: **Gambling** (return only), **Neutral** (balanced), **Safe** (risk-averse)
 
+### Extended datasets
+
+The core challenge is the 10-stock `qest` universe, but the pipeline also loads two larger datasets for data analysis and visualization:
+
+| `--dataset` | Assets |
+|---|---:|
+| `qest` (default) | 10 |
+| `nasdaq_baltic` | 29 |
+| `nyse` | 32 |
+
+Pass `--dataset nasdaq_baltic` or `--dataset nyse` to the runner, the visualization CLI, or the hardware runner. The `qest` universe stays the default everywhere.
+
 ## Quick start
 
 ```bash
@@ -25,9 +37,11 @@ python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-# 2. Put the two data files in data/raw/
-#    qest_stock_data.csv
-#    qest_correlation_2021_2024.csv
+# 2. Put the data files in data/raw/. The default flow needs the qest pair;
+#    the larger universes are optional:
+#    qest_stock_data.csv + qest_correlation_2021_2024.csv            (10 assets, required)
+#    nasdaq_baltic_stock_data.csv + nasdaq_baltic_correlation_2021_2024.csv  (29, optional)
+#    nyse_stock_data.csv + nyse_correlation_2021_2024.csv            (32, optional)
 
 # 3. Run the optimization experiment
 python -m src.pipeline.runner --quick   # 5 runs, ~2 minutes
@@ -36,10 +50,15 @@ python -m src.pipeline.runner --full    # 45 runs, ~30 minutes
 # 4. Generate all visualizations
 python -m src.pipeline.visualizations --all
 
+# Data/network plots for a large dataset (quantum plots are skipped above 12 assets)
+python -m src.pipeline.visualizations --data --network --dataset nasdaq_baltic
+python -m src.pipeline.visualizations --data --network --dataset nyse
+
 # 5. (Optional) Run one circuit on real IBM hardware
 python -m src.pipeline.hardware_runner --list-backends
 python -m src.pipeline.hardware_runner --dry-run
-python -m src.pipeline.hardware_runner --backend ibm_kingston --shots 2048
+python -m src.pipeline.hardware_runner --dataset qest --backend ibm_kingston --shots 2048
+python -m src.pipeline.hardware_runner --dataset nasdaq_baltic --max-assets 12 --dry-run
 ```
 
 Results land in `results/logs/` (CSV/JSON) and `results/visualisations/` (PNG). The hardware step is optional and needs an IBM Quantum account; see [`docs/hardware.md`](docs/hardware.md).
@@ -73,7 +92,9 @@ Results land in `results/logs/` (CSV/JSON) and `results/visualisations/` (PNG). 
 This is a **hackathon prototype**, not production software:
 
 - The default "quantum" runs use **Aer**, a local quantum-circuit **simulator**; no real quantum hardware is required.
-- An **optional hardware path** (`src/pipeline/hardware_runner.py`) optimizes angles on Aer and then samples one small circuit on a real IBM backend. It is a demo, not a benchmark; see [`docs/hardware.md`](docs/hardware.md).
-- The problem is tiny (10 assets), so a laptop solves it **exactly** classically. The exact classical answer is used as the benchmark.
+- An **optional hardware path** (`src/pipeline/hardware_runner.py`) optimizes angles on Aer and then samples one small circuit on a real IBM backend. It loads `configs/ibm_provider.yaml`. It is a demo, not a benchmark; see [`docs/hardware.md`](docs/hardware.md).
+- The default problem is tiny (10 assets), so a laptop solves it **exactly** classically. The exact classical answer is used as the benchmark.
+- The **full 29/32-asset QPU circuits are too deep** for a useful result on current IBM hardware. They are a demonstration of scale only, and the runner blocks them unless you pass `--allow-deep-circuit`. Use `--max-assets 12` for a practical QPU subset. See [`docs/hardware.md`](docs/hardware.md).
+- The **large datasets are for data analysis and visualization**, or for smaller QPU subsets (`--max-assets N`). The simulator grid search stops above 24 assets, and quantum/landscape plots are skipped above 12 assets.
 - `--quick` runs the **Neutral** philosophy only (5 rows); `--full` runs all three philosophies × 5 depths × 3 seeds (45 rows).
 - Some files are **empty placeholders** (`configs/grid_search.yaml`, the notebook, `scripts/run_experiment.py`). `configs/ibm_provider.yaml` is now used by the hardware runner. See [`docs/faq.md`](docs/faq.md).

@@ -10,12 +10,20 @@ from src.data.loader import PortfolioData
 
 from ._common import save_figure
 
+SUPPORTED_DATASETS = ("qest", "nasdaq_baltic", "nyse")
 
-def load_portfolio_data(data_dir="data/raw"):
-    return PortfolioData(
-        os.path.join(data_dir, "qest_stock_data.csv"),
-        os.path.join(data_dir, "qest_correlation_2021_2024.csv"),
-    )
+
+def load_portfolio_data(data_dir="data/raw", dataset="qest"):
+    stock_path = os.path.join(data_dir, f"{dataset}_stock_data.csv")
+    corr_path = os.path.join(data_dir, f"{dataset}_correlation_2021_2024.csv")
+    missing = [path for path in (stock_path, corr_path) if not os.path.exists(path)]
+    if missing:
+        raise FileNotFoundError(
+            f"Missing data file(s): {', '.join(missing)}. "
+            f"Supported datasets: {', '.join(SUPPORTED_DATASETS)} "
+            f"(looked in {data_dir})."
+        )
+    return PortfolioData(stock_path, corr_path)
 
 
 def portfolio_metrics(indices, returns, covariance):
@@ -122,22 +130,26 @@ def plot_portfolio_frontier(data, output_dir, results_csv=None, risk_factor=2.0)
     highlight(int(np.argmin(vols)), "D", "Min risk", "tab:blue")
     highlight(int(np.argmax(rets)), "s", "Max return", "tab:green")
 
-    try:
-        from src.problem.classical_solver import solve_exact_classical
-        from src.problem.qubo_builder import build_portfolio_optimization_problem
-        qp = build_portfolio_optimization_problem(
-            data.returns, data.covariance, data.sector_indices, risk_factor=risk_factor)
-        result = solve_exact_classical(qp)
-        bits = np.round(result.x).astype(int)
-        selected = np.where(bits == 1)[0]
-        c_ret, c_vol, _ = portfolio_metrics(selected, data.returns, data.covariance)
-        ax.scatter(c_vol * 100, c_ret * 100, marker="P", s=420, color="red",
-                   edgecolor="black", linewidths=1.5,
-                   label="Classical QP optimum", zorder=6)
-        print(f"Classical optimum: {[data.tickers[i] for i in selected]} "
-              f"(return {c_ret * 100:.2f}%, vol {c_vol * 100:.2f}%)")
-    except Exception as exc:  # keep the plot even if the solver is unavailable
-        print(f"Skipping classical optimum overlay: {exc}")
+    if data.n_assets <= 12:
+        try:
+            from src.problem.classical_solver import solve_exact_classical
+            from src.problem.qubo_builder import build_portfolio_optimization_problem
+            qp = build_portfolio_optimization_problem(
+                data.returns, data.covariance, data.sector_indices, risk_factor=risk_factor)
+            result = solve_exact_classical(qp)
+            bits = np.round(result.x).astype(int)
+            selected = np.where(bits == 1)[0]
+            c_ret, c_vol, _ = portfolio_metrics(selected, data.returns, data.covariance)
+            ax.scatter(c_vol * 100, c_ret * 100, marker="P", s=420, color="red",
+                       edgecolor="black", linewidths=1.5,
+                       label="Classical QP optimum", zorder=6)
+            print(f"Classical optimum: {[data.tickers[i] for i in selected]} "
+                  f"(return {c_ret * 100:.2f}%, vol {c_vol * 100:.2f}%)")
+        except Exception as exc:  # keep the plot even if the solver is unavailable
+            print(f"Skipping classical optimum overlay: {exc}")
+    else:
+        print(f"Skipping classical optimum overlay: {data.n_assets} assets "
+              "is too large for the exact solver.")
 
     if results_csv:
         import pandas as pd

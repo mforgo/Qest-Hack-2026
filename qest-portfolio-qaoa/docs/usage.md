@@ -24,12 +24,21 @@ pip install -r requirements.txt
 
 ## 3. Data
 
-The code expects exactly these two files:
+The loader resolves two files per dataset, both under `data/raw/`:
+
+```
+data/raw/<dataset>_stock_data.csv
+data/raw/<dataset>_correlation_2021_2024.csv
+```
+
+The default flow uses the `qest` pair:
 
 ```
 data/raw/qest_stock_data.csv
 data/raw/qest_correlation_2021_2024.csv
 ```
+
+`data/raw/` is gitignored, so you supply the CSVs yourself.
 
 ### `qest_stock_data.csv`
 
@@ -57,6 +66,29 @@ The ten stocks:
 ### `qest_correlation_2021_2024.csv`
 
 A 10×10 correlation matrix with a `ticker` index column. The loader reorders it to match the stock CSV and builds the covariance matrix as `corr × outer(vol, vol)`.
+
+### Dataset selection
+
+Every entry point accepts `--dataset`, and `qest` stays the default:
+
+| `--dataset` | Assets | Files |
+|---|---:|---|
+| `qest` (default) | 10 | `qest_stock_data.csv`, `qest_correlation_2021_2024.csv` |
+| `nasdaq_baltic` | 29 | `nasdaq_baltic_stock_data.csv`, `nasdaq_baltic_correlation_2021_2024.csv` |
+| `nyse` | 32 | `nyse_stock_data.csv`, `nyse_correlation_2021_2024.csv` |
+
+The correlation CSV may name its index column `Ticker`, `ticker`, `index`, or `unnamed: 0`. The loader reorders the correlation matrix to match the stock CSV and validates that the correlation tickers line up with the stock CSV order.
+
+`nasdaq_baltic` and `nyse` are **experimental extended universes**. For `nasdaq_baltic`, the company/sector metadata should be verified before reporting; the user-created downloader (`src/data/downloader_nasdaq_baltic.py`, untracked) has known ticker/company mismatches:
+
+| Ticker | Currently labelled | Actually is | Correct ticker |
+|---|---|---|---|
+| `SKN1T.TL` | Silvano | Nordic Fibreboard | Silvano is `SFG1T.TL` |
+| `ROE1L.VS` | Rokiškio | Artea bankas | Rokiškio is `RSU1L.VS` |
+| `PZV1L.VS` | Panevėžio | Pieno žvaigždės | Panevėžio has no Yahoo data |
+| `INL1L.VS` | Invalda | INVL Baltic Farmland | Invalda is `IVL1L.VS` |
+
+The official Nasdaq Baltic Main List has 32 companies; the 29-name set is an extended, experimental universe, not the official list. Verify before reporting.
 
 ## 4. Run the optimization experiment
 
@@ -101,7 +133,12 @@ python -m src.pipeline.runner --quick --maxiter 300 --output-dir /tmp/qaoa_runs
 | `--seeds N...` | `42` (`--full`: `42 123 999`) | Random seeds |
 | `--ansatz NAME...` | `xy_mixer` | `xy_mixer`, `standard`, or `warm_start` |
 | `--maxiter N` | `1000` | COBYLA iterations per seed |
+| `--dataset NAME` | `qest` | `qest`, `nasdaq_baltic`, or `nyse` |
+| `--data-dir PATH` | `data/raw` | Directory holding the `<dataset>_*.csv` files |
+| `--allow-large-dataset` | off | Bypass the hard stop above 24 assets (not recommended; see below) |
 | `--output-dir PATH` | `results/logs` | Where the CSV is written |
+
+The simulator grid search is only sensible for small universes. Above **24 assets** the runner raises a `ValueError`, because exact diagonalization and Aer statevector simulation grow as `2^n`. The message suggests `--dataset qest`, a smaller subset (hardware runner: `--max-assets N`), the hardware runner, or `--allow-large-dataset` to override. Result CSV rows now carry `dataset` and `num_assets` columns, and the `Data:` line prints e.g. `Data: nasdaq_baltic, 29 assets, 29 qubits`.
 
 ### What you will see (approximate)
 
@@ -164,6 +201,10 @@ python -m src.pipeline.visualizations --landscape --grid-points 30
 
 # Write plots somewhere else
 python -m src.pipeline.visualizations --all --output-dir /tmp/plots
+
+# Large datasets: data + network plots only (quantum plots are skipped above 12 assets)
+python -m src.pipeline.visualizations --data --network --dataset nasdaq_baltic
+python -m src.pipeline.visualizations --data --network --dataset nyse
 ```
 
 | Flag | Effect |
@@ -175,10 +216,14 @@ python -m src.pipeline.visualizations --all --output-dir /tmp/plots
 | `--network` | `market_correlation_network.png` |
 | `--landscape` | `qaoa_3d_landscape.png` |
 | `--file PATH` | Use a specific results CSV (default: richest CSV in `results/logs/`) |
-| `--data-dir PATH` | Directory holding the two input CSVs |
+| `--dataset NAME` | `qest` (default), `nasdaq_baltic`, or `nyse` |
+| `--data-dir PATH` | Directory holding the `<dataset>_*.csv` files |
 | `--output-dir PATH` | Where PNGs are written |
 | `--grid-points N` | Landscape resolution per axis (default 20; evaluates N² circuits) |
 | `--maxiter N` | COBYLA iterations for the sampled-distribution plot (default 60) |
+| `--allow-large-quantum` | Override the large-dataset guards on quantum/landscape plots (not recommended) |
+
+For `n_assets > 12`, the quantum and landscape plots are skipped with a clear warning; the data and network plots are still generated. The classical-optimum overlay on the portfolio frontier is also skipped for `n_assets > 12`, because the exact solver is too large. Both `nasdaq_baltic` and `nyse` produce **7 PNGs** each this way (plots 05–10 plus `market_correlation_network.png`). The `nasdaq_baltic` network has 29 nodes and 15 edges at |corr| > 0.3; the `nyse` network has 32 nodes and 206 edges at |corr| > 0.3.
 
 ### Legacy suite (plots 01–04)
 
@@ -244,7 +289,7 @@ To change the **rules** (select count, max per sector), edit `src/data/constrain
 DEFAULT_CONSTRAINTS = PortfolioConstraints(num_to_select=5, max_per_sector=2)
 ```
 
-To change **COBYLA iterations**, use `--maxiter N` (default 1000). The hardware runner is different: it **does** load `configs/ibm_provider.yaml`, and every key can be overridden on its CLI. See [`hardware.md`](hardware.md).
+To change **COBYLA iterations**, use `--maxiter N` (default 1000). The hardware runner is different: it **does** load `configs/ibm_provider.yaml`, and every key can be overridden on its CLI. It accepts `--dataset` (default `qest`), `--max-assets N` (build the circuit on the top-N Sharpe assets; `0` = all), `--surrogate-assets N` (optimize angles on a top-N Sharpe subset when the universe is large), `--params "0.7,0.4"` (supply angles directly), and `--allow-deep-circuit` (required to submit when transpiled depth exceeds 2000). See [`hardware.md`](hardware.md).
 
 ## 8. Reproducibility
 
@@ -257,7 +302,8 @@ To change **COBYLA iterations**, use `--maxiter N` (default 1000). The hardware 
 
 | Symptom | Fix |
 |---|---|
-| `FileNotFoundError: data/raw/...` | Put both CSVs in `data/raw/` (they are gitignored) |
+| `FileNotFoundError: data/raw/...` | Put the `<dataset>_stock_data.csv` and `<dataset>_correlation_2021_2024.csv` pair in `data/raw/` (they are gitignored); the default needs the `qest` pair |
+| `ValueError: ... has more than 24 assets` | The simulator grid search stops above 24 assets; use `--dataset qest`, a smaller subset (hardware: `--max-assets N`), the hardware runner, or `--allow-large-dataset` |
 | `ModuleNotFoundError: src` | Run from the repo root, not from inside `src/` |
 | Plot 17 fails with a LaTeX/`pylatexenc` error | `pip install pylatexenc` |
 | Plots open a window / crash on a server | The package already forces `Agg`; ensure you use `python -m src.pipeline.visualizations` |

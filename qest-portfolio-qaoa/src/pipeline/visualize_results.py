@@ -6,6 +6,22 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+SUPPORTED_DATASETS = ("qest", "nasdaq_baltic", "nyse")
+
+
+def _dataset_paths(data_dir, dataset):
+    stock_path = os.path.join(data_dir, f"{dataset}_stock_data.csv")
+    corr_path = os.path.join(data_dir, f"{dataset}_correlation_2021_2024.csv")
+    missing = [path for path in (stock_path, corr_path) if not os.path.exists(path)]
+    if missing:
+        raise FileNotFoundError(
+            f"Missing data file(s): {', '.join(missing)}. "
+            f"Supported datasets: {', '.join(SUPPORTED_DATASETS)} "
+            f"(looked in {data_dir})."
+        )
+    return stock_path, corr_path
+
+
 def generate_all_plots(csv_path=None, output_dir="results/visualisations"):
     # 1. Setup output directory
     os.makedirs(output_dir, exist_ok=True)
@@ -86,7 +102,8 @@ def generate_all_plots(csv_path=None, output_dir="results/visualisations"):
 
 
 def plot_qaoa_landscape(grid_points=20, risk_factor=2.0, data_dir="data/raw",
-                        output_dir="results/visualisations", backend=None, estimator=None):
+                        output_dir="results/visualisations", backend=None, estimator=None,
+                        dataset="qest", allow_large=False):
     """
     Renders the p=1 QAOA energy landscape over the (beta, gamma) parameter grid.
 
@@ -96,6 +113,9 @@ def plot_qaoa_landscape(grid_points=20, risk_factor=2.0, data_dir="data/raw",
         data_dir (str): Directory containing the raw stock/correlation CSVs.
         output_dir (str): Directory to write the PNG into.
         backend, estimator: Optional pre-built Qiskit primitives (created if None).
+        dataset (str): Name of the dataset to load (qest, nasdaq_baltic, nyse).
+        allow_large (bool): Allow datasets with more than 12 assets, for which
+            statevector simulation is impractical.
 
     Returns:
         str: Path to the saved PNG.
@@ -114,8 +134,14 @@ def plot_qaoa_landscape(grid_points=20, risk_factor=2.0, data_dir="data/raw",
     os.makedirs(output_dir, exist_ok=True)
 
     print("Loading data & building Hamiltonian...")
-    data = PortfolioData(os.path.join(data_dir, "qest_stock_data.csv"),
-                         os.path.join(data_dir, "qest_correlation_2021_2024.csv"))
+    stock_path, corr_path = _dataset_paths(data_dir, dataset)
+    data = PortfolioData(stock_path, corr_path)
+    if data.n_assets > 12 and not allow_large:
+        raise ValueError(
+            f"Dataset '{dataset}' has {data.n_assets} assets; statevector "
+            "simulation grows as 2^n and would be impractical. "
+            "Pass allow_large=True to override."
+        )
     returns, covariance, sector_indices, _ = data.get_formulation_data()
 
     ising_op = build_manual_hamiltonian(returns, covariance, sector_indices, risk_factor=risk_factor)
@@ -162,7 +188,7 @@ def plot_qaoa_landscape(grid_points=20, risk_factor=2.0, data_dir="data/raw",
 
 
 def plot_correlation_network(threshold=0.3, data_dir="data/raw",
-                             output_dir="results/visualisations"):
+                             output_dir="results/visualisations", dataset="qest"):
     """
     Renders the asset correlation network, with nodes colored by sector.
 
@@ -173,6 +199,7 @@ def plot_correlation_network(threshold=0.3, data_dir="data/raw",
         threshold (float): Minimum absolute correlation to draw an edge.
         data_dir (str): Directory containing the raw stock/correlation CSVs.
         output_dir (str): Directory to write the PNG into.
+        dataset (str): Name of the dataset to load (qest, nasdaq_baltic, nyse).
 
     Returns:
         str: Path to the saved PNG.
@@ -186,8 +213,8 @@ def plot_correlation_network(threshold=0.3, data_dir="data/raw",
 
     os.makedirs(output_dir, exist_ok=True)
 
-    data = PortfolioData(os.path.join(data_dir, "qest_stock_data.csv"),
-                         os.path.join(data_dir, "qest_correlation_2021_2024.csv"))
+    stock_path, corr_path = _dataset_paths(data_dir, dataset)
+    data = PortfolioData(stock_path, corr_path)
     tickers = data.tickers
     df_corr = data.df_corr
 
@@ -256,6 +283,9 @@ if __name__ == "__main__":
                         help="Minimum |correlation| for network edges (default: 0.3).")
     parser.add_argument("--data-dir", type=str, default="data/raw",
                         help="Directory containing the raw data CSVs.")
+    parser.add_argument("--dataset", type=str, default="qest",
+                        choices=SUPPORTED_DATASETS,
+                        help="Dataset to load from --data-dir (default: qest).")
     parser.add_argument("--output-dir", type=str, default="results/visualisations",
                         help="Directory to write PNGs into.")
     args = parser.parse_args()
@@ -263,11 +293,11 @@ if __name__ == "__main__":
     ran = False
     if args.landscape:
         plot_qaoa_landscape(grid_points=args.grid_points, data_dir=args.data_dir,
-                            output_dir=args.output_dir)
+                            output_dir=args.output_dir, dataset=args.dataset)
         ran = True
     if args.network:
         plot_correlation_network(threshold=args.threshold, data_dir=args.data_dir,
-                                 output_dir=args.output_dir)
+                                 output_dir=args.output_dir, dataset=args.dataset)
         ran = True
     if not ran:
         generate_all_plots(csv_path=args.file, output_dir=args.output_dir)

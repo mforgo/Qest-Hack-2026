@@ -2,6 +2,8 @@
 
 This folder explains the project for **three audiences**. Pick a path.
 
+The project supports three datasets: `qest` (10 assets, the default), `nasdaq_baltic` (29), and `nyse` (32).
+
 ## Path A — "I know nothing about quantum computing"
 Read in this order:
 
