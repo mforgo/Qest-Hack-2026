@@ -17,4 +17,3 @@ data/raw/*.csv
 configs/ibm_provider.yaml
 
 # Generated experiment outputs
-results/

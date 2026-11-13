@@ -1,0 +1,2 @@
+timestamp,alpha,depth,seed,sim_energy,sim_params,num_parameters,backend,job_id,shots,hardware_best_bitstring,hardware_best_count,hardware_best_probability,is_valid,return_pct,volatility_pct,sharpe,tickers,issues
+2026-11-12T23:06:12,2.0,1,42,0.04757196046964819,"[3.141585834094926, 0.6880346704307482]",2,ibm_kingston,dbr3glhabdes73fp7v20,2048,0001110110,611,0.29833984375,True,14.360000000000001,12.373940035413135,1.1605034418223246,"['CPA1T.TL', 'ROE1L.VS', 'APG1L.VS', 'PZV1L.VS', 'IGN1L.VS']",[]
